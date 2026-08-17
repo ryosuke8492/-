@@ -1,0 +1,9 @@
+{
+  "name": "doc-check-pdf-extractor",
+  "version": "0.1.0",
+  "description": "PDF文字抽出の基本モジュール（doc-check-toolのNode.js版・デスクトップアプリ化の土台）",
+  "main": "pdfExtractor.js",
+  "dependencies": {
+    "pdfjs-dist": "^3.11.174"
+  }
+}
