@@ -1,0 +1,530 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>書類間照合ツール</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<style>
+  :root{
+    --paper:#F6F4EE; --ink:#1F2733; --ink-soft:#5B6472; --line:#D8D3C4;
+    --navy:#26344A; --navy-deep:#161E2B; --stamp-red:#B23A2E; --stamp-green:#3D6B4C;
+    --amber:#B8863B; --panel:#FFFFFF;
+  }
+  *{box-sizing:border-box;}
+  body{ margin:0; font-family:"Hiragino Kaku Gothic ProN","Yu Gothic",sans-serif; background:var(--paper); color:var(--ink); }
+
+  header{ display:flex; align-items:center; justify-content:space-between; padding:14px 22px;
+    background:var(--navy-deep); color:#EDE9DD; border-bottom:3px solid var(--stamp-red); }
+  header h1{ font-size:16px; font-weight:600; margin:0; letter-spacing:.04em; }
+  header .tag{ font-size:11px; color:#A9B2C3; letter-spacing:.08em; margin-top:2px; }
+  .mode-switch{ display:flex; border:1px solid #3A4a63; border-radius:6px; overflow:hidden; }
+  .mode-switch button{ background:transparent; border:none; color:#C6CCDA; padding:7px 16px; font-size:12.5px; cursor:pointer; }
+  .mode-switch button.active{ background:var(--stamp-red); color:#fff; }
+
+  .app{ display:flex; height:calc(100vh - 58px); }
+
+  .viewer{ flex:1 1 60%; display:flex; flex-direction:column; border-right:1px solid var(--line); min-width:0; }
+
+  .doctabs{ display:flex; align-items:center; gap:6px; padding:8px 14px; background:#EFEBDF; border-bottom:1px solid var(--line); flex-wrap:wrap; }
+  .doctab{ display:flex; align-items:center; gap:6px; padding:5px 10px; border-radius:5px 5px 0 0; background:#DFDACB; color:var(--ink-soft); font-size:12px; cursor:pointer; border:1px solid transparent; }
+  .doctab.active{ background:#fff; color:var(--navy); border:1px solid var(--line); border-bottom-color:#fff; font-weight:600; }
+  .doctab .x{ color:var(--stamp-red); font-size:12px; }
+  .add-doc-btn{ font-size:12px; padding:5px 10px; border-radius:5px; border:1px dashed var(--ink-soft); background:transparent; color:var(--ink-soft); cursor:pointer; }
+
+  .toolbar{ display:flex; align-items:center; gap:10px; padding:10px 16px; background:var(--panel); border-bottom:1px solid var(--line); flex-wrap:wrap; }
+  .grp{ display:flex; align-items:center; gap:6px; }
+  .btn{ border:1px solid var(--navy); background:var(--panel); color:var(--navy); padding:6px 12px; border-radius:5px; font-size:12.5px; cursor:pointer; }
+  .btn:hover{ background:var(--navy); color:#fff; }
+  .btn.primary{ background:var(--navy); color:#fff; }
+  .btn.primary:hover{ background:var(--navy-deep); }
+  .btn[disabled]{ opacity:.4; cursor:not-allowed; }
+  .page-nav{ font-size:12.5px; color:var(--ink-soft); display:flex; align-items:center; gap:6px; }
+
+  .canvas-wrap{ flex:1; overflow:auto; background:#3a3f36; display:flex; justify-content:center; padding:24px; }
+  .canvas-stack{ position:relative; box-shadow:0 6px 22px rgba(0,0,0,.35); }
+  canvas{ display:block; background:#fff; }
+  .field-box{ position:absolute; border:2px solid var(--amber); background:rgba(184,134,59,.12); cursor:pointer; }
+  .field-box .lbl{ position:absolute; top:-20px; left:-2px; background:var(--amber); color:#fff; font-size:10.5px; padding:1px 6px; border-radius:3px 3px 0 0; white-space:nowrap; }
+
+  .side{ flex:1 1 40%; display:flex; flex-direction:column; background:var(--panel); min-width:360px; }
+  .side h2{ font-size:13px; margin:0; padding:12px 16px; border-bottom:1px solid var(--line); color:var(--ink-soft); letter-spacing:.05em; text-transform:uppercase; }
+
+  .field-list{ padding:6px 0; max-height:26%; overflow:auto; border-bottom:1px solid var(--line); }
+  .field-row{ display:flex; align-items:center; gap:8px; padding:6px 16px; font-size:12.5px; }
+  .field-row input[type=text]{ border:1px solid var(--line); border-radius:4px; padding:4px 6px; font-size:12px; flex:1; }
+  .field-row .del{ color:var(--stamp-red); cursor:pointer; font-size:14px; padding:0 4px; }
+  .empty-hint{ padding:14px 16px; color:var(--ink-soft); font-size:12px; line-height:1.7; }
+
+  .hint-banner{ margin:10px 16px; padding:10px 12px; background:#FBF7EC; border:1px solid var(--amber); border-radius:5px; font-size:12px; color:#6b4e1c; line-height:1.6; }
+
+  .groups-wrap{ flex:1; overflow:auto; }
+  .group-card{ border-bottom:1px solid var(--line); padding:12px 16px; }
+  .group-card .gtitle{ display:flex; gap:8px; align-items:center; margin-bottom:8px; }
+  .group-card input[type=text]{ border:1px solid var(--line); border-radius:4px; padding:5px 8px; font-size:12.5px; flex:1; }
+  .group-card select{ border:1px solid var(--line); border-radius:4px; padding:5px 6px; font-size:12px; }
+  .group-card .refs{ display:flex; flex-direction:column; gap:4px; margin-bottom:8px; }
+  .ref-chip{ display:flex; align-items:center; justify-content:space-between; background:#F4F1E8; border:1px solid var(--line); border-radius:4px; padding:4px 8px; font-size:12px; }
+  .ref-chip .x{ color:var(--stamp-red); cursor:pointer; }
+  .add-ref{ display:flex; gap:6px; align-items:center; flex-wrap:wrap; }
+  .del-group{ color:var(--stamp-red); cursor:pointer; font-size:13px; }
+
+  .summary{ display:flex; gap:14px; padding:10px 16px; border-bottom:1px solid var(--line); font-size:12px; color:var(--ink-soft); }
+  .summary b{ color:var(--ink); }
+  .results{ flex:1; overflow:auto; }
+  table{ width:100%; border-collapse:collapse; font-size:12.5px; }
+  thead th{ position:sticky; top:0; background:#EFEBDF; text-align:left; padding:8px 10px; border-bottom:1px solid var(--line); font-weight:600; color:var(--ink-soft); font-size:11.5px; }
+  tbody td{ padding:8px 10px; border-bottom:1px solid #F0EDE3; vertical-align:top; }
+  tbody tr:hover{ background:#FAF8F2; }
+  .stamp{ display:inline-flex; align-items:center; justify-content:center; width:26px; height:26px; border-radius:50%; border:2px solid; font-weight:700; font-size:13px; }
+  .stamp.ok{ color:var(--stamp-green); border-color:var(--stamp-green); }
+  .stamp.ng{ color:var(--stamp-red); border-color:var(--stamp-red); }
+  .stamp.warn{ color:var(--amber); border-color:var(--amber); }
+  .val-line{ font-family:"SF Mono",Consolas,monospace; font-size:11.5px; margin-bottom:2px; }
+  .val-line .dn{ color:var(--ink-soft); font-family:inherit; margin-right:4px; }
+  .ev-btn{ border:1px solid var(--navy); background:#fff; color:var(--navy); font-size:11px; padding:5px 10px; border-radius:4px; cursor:pointer; white-space:nowrap; }
+  .ev-btn:hover{ background:var(--navy); color:#fff; }
+
+  .modal-bg{ position:fixed; inset:0; background:rgba(15,18,25,.55); display:none; align-items:center; justify-content:center; z-index:50; }
+  .modal-bg.show{ display:flex; }
+  .modal{ background:#fff; width:min(680px,94vw); max-height:88vh; overflow:auto; border-radius:8px; box-shadow:0 20px 60px rgba(0,0,0,.4); }
+  .modal-head{ display:flex; justify-content:space-between; align-items:center; padding:12px 16px; background:var(--navy-deep); color:#EDE9DD; position:sticky; top:0; }
+  .modal-head .close{ cursor:pointer; font-size:18px; color:#C6CCDA; }
+  .modal-body{ padding:16px; }
+  .ev-item{ margin-bottom:16px; border:1px solid var(--line); border-radius:6px; overflow:hidden; }
+  .ev-item .ev-label{ background:#F4F1E8; padding:6px 10px; font-size:12px; font-weight:600; color:var(--navy); }
+  .ev-item .crop-frame{ background:#f4f2ea; display:flex; justify-content:center; padding:8px; }
+  .ev-item .ev-text{ padding:8px 10px; font-family:"SF Mono",Consolas,monospace; font-size:12px; border-top:1px dashed var(--line); }
+</style>
+</head>
+<body>
+
+<header>
+  <div>
+    <h1>書類間照合ツール</h1>
+    <div class="tag">CROSS-DOCUMENT FIELD MATCHER</div>
+  </div>
+  <div class="mode-switch">
+    <button id="modeEdit" class="active">① 書類・項目を定義</button>
+    <button id="modeRun">② 照合グループ・実行結果</button>
+  </div>
+</header>
+
+<div class="app">
+
+  <div class="viewer">
+    <div class="doctabs" id="docTabs">
+      <button class="add-doc-btn" id="addDocBtn">＋ 書類を追加</button>
+      <input id="pdfInput" type="file" accept="application/pdf" style="display:none">
+    </div>
+    <div class="toolbar">
+      <div class="page-nav grp">
+        <button class="btn" id="prevPage">◀</button>
+        <span id="pageLabel">- / -</span>
+        <button class="btn" id="nextPage">▶</button>
+      </div>
+    </div>
+    <div class="hint-banner" id="hintBanner">
+      まず「＋書類を追加」で照合したい書類（例：発注書、納品書）を複数読み込みます。タブで書類を切り替えながら、キャンバス上をドラッグして見比べたい欄（数量・金額・番号など）を枠取りしてください。
+    </div>
+    <div class="canvas-wrap">
+      <div class="canvas-stack" id="canvasStack">
+        <canvas id="pdfCanvas"></canvas>
+        <div id="overlay" style="position:absolute; inset:0;"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="side">
+    <h2 id="fieldListTitle">この書類のフィールド</h2>
+    <div class="field-list" id="fieldList"><div class="empty-hint">書類を追加してから、キャンバス上でドラッグしてください。</div></div>
+
+    <h2 id="groupsTitle" style="display:none">照合グループ</h2>
+    <div style="display:none; padding:10px 16px; border-bottom:1px solid var(--line);" id="addGroupWrap">
+      <button class="btn" id="addGroupBtn">＋ 照合グループを追加</button>
+      <button class="btn primary" id="runCheck" style="margin-left:8px">照合を実行</button>
+    </div>
+    <div class="groups-wrap" id="groupsWrap" style="display:none"></div>
+
+    <div class="summary" id="summaryBar" style="display:none"></div>
+    <div class="results" id="resultsWrap" style="display:none">
+      <table>
+        <thead><tr><th>グループ</th><th>抽出値（書類ごと）</th><th>判定</th><th></th></tr></thead>
+        <tbody id="resultsBody"></tbody>
+      </table>
+    </div>
+  </div>
+
+</div>
+
+<div class="modal-bg" id="modalBg">
+  <div class="modal">
+    <div class="modal-head"><div id="modalTitle">エビデンス確認</div><div class="close" id="modalClose">✕</div></div>
+    <div class="modal-body" id="modalBody"></div>
+  </div>
+</div>
+
+<script>
+pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+
+const renderScale = 1.5;
+let docs = [];        // {id,name,pdfDoc,numPages,currentPage,fields:[{id,name,page,x,y,w,h}]}
+let activeDocId = null;
+let groups = [];       // {id,name,compareType,refs:[{docId,fieldId}]}
+let results = [];      // {groupId, values:[{docId,fieldId,docName,fieldName,extracted}], verdict}
+let mode = "edit";
+let docIdSeq = 1, fieldIdSeq = 1, groupIdSeq = 1;
+
+const pdfCanvas = document.getElementById('pdfCanvas');
+const overlay = document.getElementById('overlay');
+const ctx = pdfCanvas.getContext('2d');
+
+function activeDoc(){ return docs.find(d=>d.id===activeDocId); }
+
+document.getElementById('addDocBtn').onclick = ()=> document.getElementById('pdfInput').click();
+document.getElementById('pdfInput').addEventListener('change', async (e)=>{
+  const f = e.target.files[0]; if(!f) return;
+  const buf = await f.arrayBuffer();
+  const pdfDoc = await pdfjsLib.getDocument({data:buf}).promise;
+  const id = 'd'+(docIdSeq++);
+  const doc = { id, name: f.name.replace(/\.pdf$/i,''), pdfDoc, numPages: pdfDoc.numPages, currentPage:1, fields:[] };
+  docs.push(doc);
+  activeDocId = id;
+  renderDocTabs();
+  await renderPage();
+  renderFieldList();
+  e.target.value = '';
+});
+
+function renderDocTabs(){
+  const wrap = document.getElementById('docTabs');
+  wrap.querySelectorAll('.doctab').forEach(el=>el.remove());
+  docs.forEach(d=>{
+    const tab = document.createElement('div');
+    tab.className = 'doctab' + (d.id===activeDocId?' active':'');
+    tab.innerHTML = `<span>${escapeHtml(d.name)}</span><span class="x" data-id="${d.id}">✕</span>`;
+    tab.addEventListener('click', async (e)=>{
+      if(e.target.classList.contains('x')) return;
+      activeDocId = d.id; renderDocTabs(); await renderPage(); renderFieldList();
+    });
+    tab.querySelector('.x').addEventListener('click', (e)=>{
+      e.stopPropagation();
+      docs = docs.filter(x=>x.id!==d.id);
+      groups.forEach(g=> g.refs = g.refs.filter(r=>r.docId!==d.id));
+      if(activeDocId===d.id) activeDocId = docs.length? docs[0].id : null;
+      renderDocTabs();
+      if(activeDocId){ renderPage(); } else { ctx.clearRect(0,0,pdfCanvas.width,pdfCanvas.height); overlay.innerHTML=''; document.getElementById('pageLabel').innerText='- / -'; }
+      renderFieldList(); renderGroups();
+    });
+    wrap.insertBefore(tab, document.getElementById('addDocBtn'));
+  });
+}
+
+document.getElementById('prevPage').onclick = async ()=>{ const d=activeDoc(); if(d && d.currentPage>1){d.currentPage--; await renderPage();} };
+document.getElementById('nextPage').onclick = async ()=>{ const d=activeDoc(); if(d && d.currentPage<d.numPages){d.currentPage++; await renderPage();} };
+
+async function renderPage(){
+  const d = activeDoc();
+  if(!d){ return; }
+  const page = await d.pdfDoc.getPage(d.currentPage);
+  const viewport = page.getViewport({scale: renderScale});
+  pdfCanvas.width = viewport.width; pdfCanvas.height = viewport.height;
+  overlay.style.width = viewport.width+'px'; overlay.style.height = viewport.height+'px';
+  document.getElementById('canvasStack').style.width = viewport.width+'px';
+  document.getElementById('canvasStack').style.height = viewport.height+'px';
+  await page.render({canvasContext: ctx, viewport}).promise;
+  document.getElementById('pageLabel').innerText = d.currentPage+' / '+d.numPages;
+  drawFieldBoxes();
+}
+
+let dragging=false, dragStart=null, dragBox=null;
+overlay.addEventListener('mousedown', (e)=>{
+  if(mode!=='edit' || !activeDoc()) return;
+  const rect = overlay.getBoundingClientRect();
+  dragging = true; dragStart = {x:e.clientX-rect.left, y:e.clientY-rect.top};
+  dragBox = document.createElement('div'); dragBox.className='field-box';
+  dragBox.style.left=dragStart.x+'px'; dragBox.style.top=dragStart.y+'px';
+  overlay.appendChild(dragBox);
+});
+overlay.addEventListener('mousemove', (e)=>{
+  if(!dragging) return;
+  const rect = overlay.getBoundingClientRect();
+  const x=e.clientX-rect.left, y=e.clientY-rect.top;
+  const l=Math.min(x,dragStart.x), t=Math.min(y,dragStart.y);
+  const w=Math.abs(x-dragStart.x), h=Math.abs(y-dragStart.y);
+  dragBox.style.left=l+'px'; dragBox.style.top=t+'px'; dragBox.style.width=w+'px'; dragBox.style.height=h+'px';
+});
+overlay.addEventListener('mouseup', ()=>{
+  if(!dragging) return;
+  dragging=false;
+  const l=parseFloat(dragBox.style.left), t=parseFloat(dragBox.style.top);
+  const w=parseFloat(dragBox.style.width)||0, h=parseFloat(dragBox.style.height)||0;
+  overlay.removeChild(dragBox);
+  if(w<8||h<8) return;
+  const d = activeDoc();
+  const id = 'f'+(fieldIdSeq++);
+  d.fields.push({id, name:'項目'+(d.fields.length+1), page:d.currentPage,
+    x:l/renderScale, y:t/renderScale, w:w/renderScale, h:h/renderScale});
+  renderFieldList(); drawFieldBoxes();
+});
+
+function drawFieldBoxes(){
+  overlay.querySelectorAll('.field-box').forEach(el=>el.remove());
+  const d = activeDoc(); if(!d) return;
+  d.fields.filter(f=>f.page===d.currentPage).forEach(f=>{
+    const box = document.createElement('div');
+    box.className='field-box';
+    box.style.left=(f.x*renderScale)+'px'; box.style.top=(f.y*renderScale)+'px';
+    box.style.width=(f.w*renderScale)+'px'; box.style.height=(f.h*renderScale)+'px';
+    const lbl=document.createElement('div'); lbl.className='lbl'; lbl.innerText=f.name;
+    box.appendChild(lbl);
+    overlay.appendChild(box);
+  });
+}
+
+function renderFieldList(){
+  const d = activeDoc();
+  const wrap = document.getElementById('fieldList');
+  if(!d){ wrap.innerHTML = '<div class="empty-hint">書類を追加してから、キャンバス上でドラッグしてください。</div>'; return; }
+  if(d.fields.length===0){ wrap.innerHTML = `<div class="empty-hint">「${escapeHtml(d.name)}」にはまだフィールドがありません。キャンバス上をドラッグして枠取りしてください。</div>`; return; }
+  wrap.innerHTML = '';
+  d.fields.forEach(f=>{
+    const row = document.createElement('div'); row.className='field-row';
+    row.innerHTML = `<input type="text" value="${escapeHtml(f.name)}" data-id="${f.id}"><span class="del" data-id="${f.id}">✕</span>`;
+    wrap.appendChild(row);
+  });
+  wrap.querySelectorAll('input').forEach(el=>el.addEventListener('input', e=>{
+    const f = d.fields.find(f=>f.id===e.target.dataset.id); f.name = e.target.value; drawFieldBoxes(); renderGroups();
+  }));
+  wrap.querySelectorAll('.del').forEach(el=>el.addEventListener('click', e=>{
+    d.fields = d.fields.filter(f=>f.id!==e.target.dataset.id);
+    groups.forEach(g=> g.refs = g.refs.filter(r=> !(r.docId===d.id && r.fieldId===e.target.dataset.id)));
+    renderFieldList(); drawFieldBoxes(); renderGroups();
+  }));
+}
+
+document.getElementById('modeEdit').onclick = ()=> setMode('edit');
+document.getElementById('modeRun').onclick = ()=> setMode('run');
+function setMode(m){
+  mode = m;
+  document.getElementById('modeEdit').classList.toggle('active', m==='edit');
+  document.getElementById('modeRun').classList.toggle('active', m==='run');
+  document.getElementById('fieldListTitle').style.display = m==='edit'?'block':'none';
+  document.getElementById('fieldList').style.display = m==='edit'?'block':'none';
+  document.getElementById('groupsTitle').style.display = m==='run'?'block':'none';
+  document.getElementById('addGroupWrap').style.display = m==='run'?'block':'none';
+  document.getElementById('groupsWrap').style.display = m==='run'?'block':'none';
+  document.getElementById('resultsWrap').style.display = m==='run' && results.length ? 'block':'none';
+  document.getElementById('summaryBar').style.display = m==='run' && results.length ? 'flex':'none';
+  document.getElementById('hintBanner').innerText = m==='edit'
+    ? 'まず「＋書類を追加」で照合したい書類（例：発注書、納品書）を複数読み込みます。タブで書類を切り替えながら、キャンバス上をドラッグして見比べたい欄（数量・金額・番号など）を枠取りしてください。'
+    : '照合グループごとに、複数書類のフィールドを紐付けます（例：発注書の数量 ⇄ 納品書の数量）。「照合を実行」で全グループを一括チェックします。';
+  if(m==='run') renderGroups();
+}
+
+document.getElementById('addGroupBtn').onclick = ()=>{
+  groups.push({id:'g'+(groupIdSeq++), name:'照合グループ'+(groups.length+1), compareType:'exact', refs:[]});
+  renderGroups();
+};
+
+function renderGroups(){
+  const wrap = document.getElementById('groupsWrap');
+  wrap.innerHTML = '';
+  if(groups.length===0){ wrap.innerHTML = '<div class="empty-hint">「＋照合グループを追加」で、書類間で見比べたい項目同士を紐付けてください。</div>'; return; }
+  groups.forEach(g=>{
+    const card = document.createElement('div'); card.className='group-card';
+    const refsHtml = g.refs.map(r=>{
+      const d = docs.find(x=>x.id===r.docId); const f = d ? d.fields.find(x=>x.id===r.fieldId) : null;
+      const label = d && f ? `${d.name} ／ ${f.name}` : '(削除済み)';
+      return `<div class="ref-chip"><span>${escapeHtml(label)}</span><span class="x" data-g="${g.id}" data-doc="${r.docId}" data-field="${r.fieldId}">✕</span></div>`;
+    }).join('');
+    const docOptions = docs.map(d=>`<option value="${d.id}">${escapeHtml(d.name)}</option>`).join('');
+    card.innerHTML = `
+      <div class="gtitle">
+        <input type="text" value="${escapeHtml(g.name)}" data-role="gname" data-g="${g.id}">
+        <select data-role="gtype" data-g="${g.id}">
+          <option value="exact" ${g.compareType==='exact'?'selected':''}>完全一致</option>
+          <option value="numeric" ${g.compareType==='numeric'?'selected':''}>数値一致</option>
+          <option value="date" ${g.compareType==='date'?'selected':''}>日付一致</option>
+          <option value="contains" ${g.compareType==='contains'?'selected':''}>部分一致</option>
+        </select>
+        <span class="del-group" data-g="${g.id}">✕</span>
+      </div>
+      <div class="refs">${refsHtml || '<div class="empty-hint" style="padding:4px 0">まだ項目が紐付けられていません</div>'}</div>
+      <div class="add-ref">
+        <select data-role="pickDoc" data-g="${g.id}"><option value="">書類を選択</option>${docOptions}</select>
+        <select data-role="pickField" data-g="${g.id}"><option value="">フィールドを選択</option></select>
+        <button class="btn" data-role="addRef" data-g="${g.id}" style="padding:4px 10px">＋追加</button>
+      </div>
+    `;
+    wrap.appendChild(card);
+  });
+
+  wrap.querySelectorAll('[data-role=gname]').forEach(el=>el.addEventListener('input', e=>{
+    groups.find(g=>g.id===e.target.dataset.g).name = e.target.value;
+  }));
+  wrap.querySelectorAll('[data-role=gtype]').forEach(el=>el.addEventListener('change', e=>{
+    groups.find(g=>g.id===e.target.dataset.g).compareType = e.target.value;
+  }));
+  wrap.querySelectorAll('.del-group').forEach(el=>el.addEventListener('click', e=>{
+    groups = groups.filter(g=>g.id!==e.target.dataset.g); renderGroups();
+  }));
+  wrap.querySelectorAll('.ref-chip .x').forEach(el=>el.addEventListener('click', e=>{
+    const g = groups.find(g=>g.id===e.target.dataset.g);
+    g.refs = g.refs.filter(r=> !(r.docId===e.target.dataset.doc && r.fieldId===e.target.dataset.field));
+    renderGroups();
+  }));
+  wrap.querySelectorAll('[data-role=pickDoc]').forEach(el=>el.addEventListener('change', e=>{
+    const card = e.target.closest('.group-card');
+    const fieldSel = card.querySelector('[data-role=pickField]');
+    const d = docs.find(d=>d.id===e.target.value);
+    fieldSel.innerHTML = '<option value="">フィールドを選択</option>' + (d? d.fields.map(f=>`<option value="${f.id}">${escapeHtml(f.name)}</option>`).join('') : '');
+  }));
+  wrap.querySelectorAll('[data-role=addRef]').forEach(el=>el.addEventListener('click', e=>{
+    const card = e.target.closest('.group-card');
+    const docId = card.querySelector('[data-role=pickDoc]').value;
+    const fieldId = card.querySelector('[data-role=pickField]').value;
+    if(!docId || !fieldId) return;
+    const g = groups.find(g=>g.id===e.target.dataset.g);
+    if(g.refs.find(r=>r.docId===docId && r.fieldId===fieldId)) return;
+    g.refs.push({docId, fieldId});
+    renderGroups();
+  }));
+}
+
+document.getElementById('runCheck').onclick = async ()=>{
+  if(docs.length<2){ alert('照合には2つ以上の書類が必要です。'); return; }
+  const usable = groups.filter(g=>g.refs.length>=2);
+  if(usable.length===0){ alert('照合グループに2件以上のフィールドを紐付けてください。'); return; }
+  results = [];
+  for(const g of usable){
+    const values = [];
+    for(const r of g.refs){
+      const d = docs.find(x=>x.id===r.docId);
+      const f = d.fields.find(x=>x.id===r.fieldId);
+      const extracted = await extractTextInBox(d, f);
+      values.push({docId:d.id, fieldId:f.id, docName:d.name, fieldName:f.name, extracted});
+    }
+    const verdict = judgeGroup(values, g.compareType);
+    results.push({groupId:g.id, groupName:g.name, values, verdict});
+  }
+  renderResults();
+  document.getElementById('resultsWrap').style.display='block';
+  document.getElementById('summaryBar').style.display='flex';
+};
+
+async function extractTextInBox(d, f){
+  const page = await d.pdfDoc.getPage(f.page);
+  const viewport = page.getViewport({scale:1});
+  const textContent = await page.getTextContent();
+  const items = [];
+  for(const item of textContent.items){
+    const tx = item.transform[4];
+    const tyPdf = item.transform[5];
+    const tyTop = viewport.height - tyPdf;
+    if(tx>=f.x-2 && tx<=f.x+f.w+2 && tyTop>=f.y-4 && tyTop<=f.y+f.h+6){
+      items.push({x:tx, str:item.str});
+    }
+  }
+  items.sort((a,b)=>a.x-b.x);
+  return items.map(i=>i.str).join('').trim();
+}
+
+function judgeGroup(values, type){
+  if(values.some(v=>!v.extracted)) return 'warn';
+  const norm = s => s.replace(/[\s　,，]/g,'');
+  const base = values[0].extracted;
+  const cmp = (a,b)=>{
+    if(type==='exact') return norm(a)===norm(b);
+    if(type==='numeric'){
+      const x=parseFloat(norm(a).replace(/[^\d.-]/g,'')), y=parseFloat(norm(b).replace(/[^\d.-]/g,''));
+      if(isNaN(x)||isNaN(y)) return null;
+      return x===y;
+    }
+    if(type==='date'){
+      const norm2 = s => norm(s).replace(/[年月]/g,'/').replace(/日/g,'');
+      return norm2(a)===norm2(b);
+    }
+    if(type==='contains') return norm(a).includes(norm(b)) || norm(b).includes(norm(a));
+    return null;
+  };
+  for(let i=1;i<values.length;i++){
+    const r = cmp(base, values[i].extracted);
+    if(r===null) return 'warn';
+    if(!r) return 'ng';
+  }
+  return 'ok';
+}
+
+function renderResults(){
+  const body = document.getElementById('resultsBody');
+  body.innerHTML = '';
+  let ok=0, ng=0, warn=0;
+  results.forEach(r=>{
+    if(r.verdict==='ok') ok++; else if(r.verdict==='ng') ng++; else warn++;
+    const stampCls = r.verdict==='ok'?'ok':(r.verdict==='ng'?'ng':'warn');
+    const stampChar = r.verdict==='ok'?'済':(r.verdict==='ng'?'否':'?');
+    const valsHtml = r.values.map(v=>`<div class="val-line"><span class="dn">${escapeHtml(v.docName)}:</span>${escapeHtml(v.extracted)||'（抽出なし）'}</div>`).join('');
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td>${escapeHtml(r.groupName)}</td>
+      <td>${valsHtml}</td>
+      <td><span class="stamp ${stampCls}">${stampChar}</span></td>
+      <td><button class="ev-btn" data-g="${r.groupId}">エビデンス確認</button></td>
+    `;
+    body.appendChild(tr);
+  });
+  body.querySelectorAll('.ev-btn').forEach(b=>b.addEventListener('click', e=>openEvidence(e.target.dataset.g)));
+  document.getElementById('summaryBar').innerHTML =
+    `<span>合計 <b>${results.length}</b></span><span style="color:var(--stamp-green)">一致 <b>${ok}</b></span><span style="color:var(--stamp-red)">不一致 <b>${ng}</b></span><span style="color:var(--amber)">要確認 <b>${warn}</b></span>`;
+}
+
+async function renderPageToOffscreen(d, pageNum){
+  const page = await d.pdfDoc.getPage(pageNum);
+  const viewport = page.getViewport({scale: renderScale});
+  const c = document.createElement('canvas');
+  c.width = viewport.width; c.height = viewport.height;
+  await page.render({canvasContext: c.getContext('2d'), viewport}).promise;
+  return c;
+}
+
+async function openEvidence(groupId){
+  const r = results.find(r=>r.groupId===groupId);
+  const g = groups.find(g=>g.id===groupId);
+  if(!r || !g) return;
+  document.getElementById('modalTitle').innerText = 'エビデンス確認：'+r.groupName;
+  const body = document.getElementById('modalBody');
+  body.innerHTML = '';
+  for(const ref of g.refs){
+    const d = docs.find(x=>x.id===ref.docId);
+    const f = d.fields.find(x=>x.id===ref.fieldId);
+    const v = r.values.find(v=>v.docId===d.id && v.fieldId===f.id);
+    const src = await renderPageToOffscreen(d, f.page);
+    const pad = 14;
+    const sx = Math.max(0, f.x*renderScale - pad), sy = Math.max(0, f.y*renderScale - pad);
+    const sw = f.w*renderScale + pad*2, sh = f.h*renderScale + pad*2;
+    const crop = document.createElement('canvas'); crop.width=sw; crop.height=sh;
+    const cctx = crop.getContext('2d');
+    cctx.drawImage(src, sx, sy, sw, sh, 0, 0, sw, sh);
+    cctx.strokeStyle = r.verdict==='ng' ? '#B23A2E' : (r.verdict==='ok' ? '#3D6B4C' : '#B8863B');
+    cctx.lineWidth = 2;
+    cctx.strokeRect(pad-2, pad-2, f.w*renderScale+4, f.h*renderScale+4);
+
+    const item = document.createElement('div'); item.className='ev-item';
+    const frame = document.createElement('div'); frame.className='crop-frame'; frame.appendChild(crop);
+    item.innerHTML = `<div class="ev-label">${escapeHtml(d.name)} ／ ${escapeHtml(f.name)}（${f.page}ページ）</div>`;
+    item.appendChild(frame);
+    const textDiv = document.createElement('div'); textDiv.className='ev-text';
+    textDiv.innerText = '抽出値: ' + (v ? (v.extracted || '（抽出なし）') : '-');
+    item.appendChild(textDiv);
+    body.appendChild(item);
+  }
+  document.getElementById('modalBg').classList.add('show');
+}
+document.getElementById('modalClose').onclick = ()=> document.getElementById('modalBg').classList.remove('show');
+document.getElementById('modalBg').addEventListener('click', (e)=>{ if(e.target.id==='modalBg') e.currentTarget.classList.remove('show'); });
+
+function escapeHtml(s){ return (s||'').toString().replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+</script>
+</body>
+</html>
